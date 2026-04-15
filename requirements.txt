@@ -1,0 +1,7 @@
+geopy
+pillow
+pillow-heif
+torch
+open_clip_torch
+torchvision
+faiss-cpu
