@@ -79,7 +79,7 @@ def search_by_image(image_path):
 
 if __name__ == "__main__":
     
-    query = "girl with camera"
+    query = "image that was clicked in Goa in kitchen"
     results = search_by_text(query)
 
     print("\n🔍 Text Search Results:")

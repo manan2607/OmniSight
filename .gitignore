@@ -4,3 +4,4 @@ photos
 photo_metadata.db
 faiss_map.json
 faiss.index
+see.py
