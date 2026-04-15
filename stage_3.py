@@ -1,34 +1,32 @@
-import numpy as np
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
 import torch
 import open_clip
+import faiss
+import json
+
 from PIL import Image
 
-
-EMBEDDING_FILE = "image_embeddings.npz"
+FAISS_INDEX_FILE = "faiss.index"
+FAISS_MAP_FILE = "faiss_map.json"
 TOP_K = 1
 
 device = "mps" if torch.backends.mps.is_available() else "cpu"
-
-
 
 model, _, preprocess = open_clip.create_model_and_transforms(
     "ViT-B-32", pretrained="laion2b_s34b_b79k"
 )
 
 tokenizer = open_clip.get_tokenizer("ViT-B-32")
+
 model = model.to(device)
 model.eval()
 
+index = faiss.read_index(FAISS_INDEX_FILE)
 
-
-data = np.load(EMBEDDING_FILE, allow_pickle=True)
-
-embeddings = data["embeddings"]         
-file_names = data["file_names"]
-metadata = data["metadata"]
-
-embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
-
+with open(FAISS_MAP_FILE, "r") as f:
+    id_map = json.load(f)
 
 def text_to_embedding(query):
     tokens = tokenizer([query]).to(device)
@@ -38,8 +36,7 @@ def text_to_embedding(query):
 
     text_features /= text_features.norm(dim=-1, keepdim=True)
 
-    return text_features.cpu().numpy()[0]
-
+    return text_features.cpu().numpy().astype("float32")
 
 def image_to_embedding(image_path):
     image = Image.open(image_path).convert("RGB")
@@ -50,20 +47,21 @@ def image_to_embedding(image_path):
 
     image_features /= image_features.norm(dim=-1, keepdim=True)
 
-    return image_features.cpu().numpy()[0]
+    return image_features.cpu().numpy().astype("float32")
 
 
 def search(query_embedding, top_k=TOP_K):
-    scores = np.dot(embeddings, query_embedding)
-
-    top_indices = np.argsort(scores)[-top_k:][::-1]
+    # FAISS expects shape (1, dim)
+    scores, indices = index.search(query_embedding, top_k)
 
     results = []
-    for idx in top_indices:
+    for score, idx in zip(scores[0], indices[0]):
+        if idx == -1:
+            continue
+
         results.append({
-            "file_name": file_names[idx],
-            "score": float(scores[idx]),
-            "metadata": metadata[idx]
+            "file_name": id_map[str(idx)],
+            "score": float(score)
         })
 
     return results
@@ -76,10 +74,9 @@ def search_by_image(image_path):
     query_embedding = image_to_embedding(image_path)
     return search(query_embedding)
 
-
 if __name__ == "__main__":
     
-    query = "girl in a red dress with a DSLR camera"
+    query = "girl with camera"
     results = search_by_text(query)
 
     print("\n🔍 Text Search Results:")

@@ -3,3 +3,5 @@ venv
 photos
 photo_metadata.db
 image_embeddings.npz
+faiss_map.json
+faiss.index

@@ -18,7 +18,7 @@ def exact_geo(lat, lon):
 
     if key in geo_cache:
         return geo_cache[key]
-    
+     
     for i in range(2):
         try:
             location = reverse(f"{lat}, {lon}")
@@ -124,12 +124,10 @@ def meta_data_pipeline(image_paths):
     ''')
 
     conn.commit()
-
     with ThreadPoolExecutor(max_workers=8) as executor:
         results = list(executor.map(process_image, image_paths))
 
     results = [r for r in results if r is not None]
-    
     cursor.executemany('''
         INSERT OR REPLACE INTO metadata (file_path, date_time, location, lat, lon)
         VALUES (?, ?, ?, ?, ?)

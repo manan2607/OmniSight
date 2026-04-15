@@ -1,8 +1,11 @@
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import sqlite3
 import torch
-import os
 import open_clip
 import numpy as np
+import faiss
+import json
 from PIL import Image
 from pathlib import Path
 from pillow_heif import register_heif_opener
@@ -10,7 +13,11 @@ from pillow_heif import register_heif_opener
 register_heif_opener()
 
 
+
 device = "mps" if torch.backends.mps.is_available() else "cpu"
+
+FAISS_INDEX_FILE = "faiss.index"
+FAISS_MAP_FILE = "faiss_map.json"
 
 
 model, _, preprocess = open_clip.create_model_and_transforms(
@@ -18,13 +25,14 @@ model, _, preprocess = open_clip.create_model_and_transforms(
 )
 
 tokenizer = open_clip.get_tokenizer("ViT-B-32")
+
 model = model.to(device)
 model.eval()
 
 
+
 def metadata_to_text(meta):
     return f"{Path(meta.get('file_name','')).name} {meta.get('date_time','')} {meta.get('address','')} {meta.get('lat','')} {meta.get('lon','')}"
-     
 
 
 
@@ -34,16 +42,16 @@ def load_data():
 
     cursor.execute(
         "SELECT * FROM metadata WHERE processed = ? LIMIT ?",
-        (0, 50)
+        (0, 1)
     )
 
     rows = cursor.fetchall()
-
     conn.close()
 
     data = []
     for row in rows:
-        id, file_name, date_time, location,lat, lon, _ = row
+        id, file_name, date_time, location, lat, lon, _ = row
+
         data.append({
             "id": id,
             "metadata": {
@@ -54,9 +62,8 @@ def load_data():
                 "address": location
             }
         })
-    
-    return data
 
+    return data
 
 
 
@@ -66,11 +73,7 @@ def process_batch(batch):
     file_names = []
     metadata_list = []
 
-    conn = sqlite3.connect('photo_metadata.db')
-    cursor = conn.cursor()
-
     for item in batch:
-
         file_name = Path(item['metadata']['file_name'])
         img_path = f"photos/{file_name}"
 
@@ -83,26 +86,14 @@ def process_batch(batch):
 
             image = image.convert("RGB")
 
-            cursor.execute("""
-                UPDATE metadata 
-                SET processed = 1 
-                WHERE file_path = ?
-            """, (str(file_name),))
-            conn.commit()
-
         except Exception as e:
             print(f"Error loading: {file_name}, {e}")
             continue
 
-        if isinstance(image, list):
-            print(f"Skipping list-type image: {file_name}")
-            continue
         images.append(preprocess(image).unsqueeze(0))
         texts.append(metadata_to_text(item["metadata"]))
         file_names.append(file_name)
         metadata_list.append(item["metadata"])
-
-    conn.close()
 
     if len(images) == 0:
         return [], [], np.array([])
@@ -114,7 +105,7 @@ def process_batch(batch):
         image_features = model.encode_image(images)
         text_features = model.encode_text(text_tokens)
 
-    # Normalize 
+    # Normalize
     image_features /= image_features.norm(dim=-1, keepdim=True)
     text_features /= text_features.norm(dim=-1, keepdim=True)
 
@@ -124,33 +115,86 @@ def process_batch(batch):
     return file_names, metadata_list, combined.cpu().numpy()
 
 
-output_file = "image_embeddings.npz"
+
+def load_mapping():
+    if os.path.exists(FAISS_MAP_FILE):
+        with open(FAISS_MAP_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_mapping(mapping):
+    with open(FAISS_MAP_FILE, "w") as f:
+        json.dump(mapping, f)
 
 
-def npz_file_making(vectors):
 
+def get_faiss_index(dim, embeddings=None):
+    n_vectors = 0 if embeddings is None else embeddings.shape[0]
+
+    # SMALL DATA → use simple index
+    if n_vectors < 100:
+        print("⚡ Using IndexFlatIP (small dataset)")
+        return faiss.IndexFlatIP(dim)
+
+    # LARGE DATA → use IVF
+    nlist = min(100, n_vectors // 2) 
+    m = 8
+
+    print(f"🚀 Using IVF index (nlist={nlist})")
+
+    quantizer = faiss.IndexFlatIP(dim)
+    index = faiss.IndexIVFPQ(quantizer, dim, nlist, m, 8)
+
+    if embeddings is not None:
+        index.train(embeddings)
+
+    return index
+
+
+def update_faiss(vectors):
     new_file_names, new_metadata, new_embeddings = vectors
-    
-    if os.path.exists(output_file):
-        data = np.load(output_file, allow_pickle=True)
-        old_embeddings = data["embeddings"]
-        old_file_names = data["file_names"]
-        old_metadata = data["metadata"]
 
-        embeddings = np.vstack([old_embeddings, new_embeddings])
-        file_names = np.concatenate([old_file_names, new_file_names])
-        metadata = np.concatenate([old_metadata, new_metadata])
+    if len(new_embeddings) == 0:
+        return
 
+    new_embeddings = new_embeddings.astype("float32")
+    dim = new_embeddings.shape[1]
+
+    if os.path.exists(FAISS_INDEX_FILE):
+        index = faiss.read_index(FAISS_INDEX_FILE)
+        id_map = load_mapping()
+        start_id = len(id_map)
     else:
-        embeddings = new_embeddings
-        file_names = new_file_names
-        metadata = new_metadata
+        index = get_faiss_index(dim, new_embeddings)
+        id_map = {}
+        start_id = 0
 
-    np.savez(
-        output_file,
-        embeddings=embeddings,
-        file_names=file_names,
-        metadata=metadata
-    )
+    if hasattr(index, "is_trained") and not index.is_trained:
+        if new_embeddings.shape[0] >= index.nlist:
+            index.train(new_embeddings)
+        else:
+            print("⚠️ Not enough data to train IVF yet, skipping training")
 
-    return
+    index.add(new_embeddings)
+
+    for i, fname in enumerate(new_file_names):
+        id_map[str(start_id + i)] = str(fname)
+
+    faiss.write_index(index, FAISS_INDEX_FILE)
+    save_mapping(id_map)
+
+    print(f"✅ Added {len(new_embeddings)} vectors to FAISS")
+
+
+def mark_processed(file_names):
+    conn = sqlite3.connect('photo_metadata.db')
+    cursor = conn.cursor()
+
+    cursor.executemany("""
+        UPDATE metadata 
+        SET processed = 1 
+        WHERE file_path = ?
+    """, [(str(f),) for f in file_names])
+
+    conn.commit()
+    conn.close()

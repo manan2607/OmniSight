@@ -1,3 +1,4 @@
 upgrade to faiss
+add BLIP to CLIP making it more NLP favoured
 
 find promise ring for ak
