@@ -1,4 +1,4 @@
-upgrade to faiss
 add BLIP to CLIP making it more NLP favoured
-
-find promise ring for ak
+more filtering use of metadata
+add a nlp layer on the search side to understand what the users want
+file name to something hash so that it is very unique
