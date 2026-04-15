@@ -1,5 +1,4 @@
 more filtering use of metadata like change date number to april 4th 2026
 add a nlp layer on the search side to understand what the users want
 file name to something hash so that it is very unique
-add access token for blip and clip
 work around for ss

@@ -2,6 +2,9 @@ from stage_1 import meta_data_pipeline
 from stage_2 import load_data, process_batch,update_faiss,mark_processed
 from pathlib import Path
 
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
+
 
 
 
@@ -25,10 +28,10 @@ if __name__ == '__main__':
         if not data:
             break
 
-        file_names, metadata_list, embeddings = process_batch(data)
+        file_names, embeddings = process_batch(data)
 
         if len(embeddings) > 0:
-            update_faiss((file_names, metadata_list, embeddings))
+            update_faiss((file_names, embeddings))
             mark_processed(file_names)
 
     print("🚀 Pipeline completed")

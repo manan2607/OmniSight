@@ -90,7 +90,6 @@ def process_batch(batch):
     images = []
     texts = []
     file_names = []
-    metadata_list = []
 
     for item in batch:
         file_name = Path(item['metadata']['file_name'])
@@ -112,7 +111,6 @@ def process_batch(batch):
         images.append(preprocess(image).unsqueeze(0))
         texts.append(metadata_to_text(item["metadata"]))
         file_names.append(file_name)
-        metadata_list.append(item["metadata"])
 
     if len(images) == 0:
         return [], [], np.array([])
@@ -131,7 +129,7 @@ def process_batch(batch):
     # Fusion
     combined = 0.5 * image_features + 0.5 * text_features
 
-    return file_names, metadata_list, combined.cpu().numpy()
+    return file_names, combined.cpu().numpy()
 
 
 
@@ -171,7 +169,7 @@ def get_faiss_index(dim, embeddings=None):
 
 
 def update_faiss(vectors):
-    new_file_names, new_metadata, new_embeddings = vectors
+    new_file_names, new_embeddings = vectors
 
     if len(new_embeddings) == 0:
         return
