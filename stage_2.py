@@ -1,5 +1,6 @@
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
 import sqlite3
 import torch
 import open_clip
@@ -13,18 +14,18 @@ from pillow_heif import register_heif_opener
 register_heif_opener()
 
 
-
+# Global Config
 device = "mps" if torch.backends.mps.is_available() else "cpu"
-
 FAISS_INDEX_FILE = "faiss.index"
 FAISS_MAP_FILE = "faiss_map.json"
 
 
+# CLIP Config
 model, _, preprocess = open_clip.create_model_and_transforms(
-    "ViT-B-32", pretrained="laion2b_s34b_b79k"
+    "ViT-L-14", pretrained="laion2b_s32b_b82k"
 )
 
-tokenizer = open_clip.get_tokenizer("ViT-B-32")
+tokenizer = open_clip.get_tokenizer("ViT-L-14")
 
 model = model.to(device)
 model.eval()
@@ -32,7 +33,26 @@ model.eval()
 
 
 def metadata_to_text(meta):
-    return f"{Path(meta.get('file_name','')).name} {meta.get('date_time','')} {meta.get('address','')} {meta.get('lat','')} {meta.get('lon','')}"
+    file_name =str(Path(meta.get('file_name','')).name)
+    date_time = str(meta.get('date_time', ''))
+    address = str(meta.get('address', ''))
+    caption = str(meta.get('caption', ''))
+
+    if " " in date_time:
+        date, time = date_time.split(" ", 1)
+    else:
+        date, time = date_time, ""
+
+    parts = [
+        caption,
+        f"location {address}" if address else "",
+        f"date {date}" if date else "",
+        f"time {time}" if time else "",
+        f"{file_name}",
+        "photo"
+    ]
+
+    return ", ".join([p for p in parts if p])
 
 
 
@@ -42,7 +62,7 @@ def load_data():
 
     cursor.execute(
         "SELECT * FROM metadata WHERE processed = ? LIMIT ?",
-        (0, 1)
+        (0, 50)
     )
 
     rows = cursor.fetchall()
@@ -50,16 +70,15 @@ def load_data():
 
     data = []
     for row in rows:
-        id, file_name, date_time, location, lat, lon, _ = row
+        id, file_name, date_time, location, caption, _ = row
 
         data.append({
             "id": id,
             "metadata": {
                 "file_name": file_name,
                 "date_time": date_time,
-                "lat": lat,
-                "lon": lon,
-                "address": location
+                "address": location,
+                "caption":caption
             }
         })
 
@@ -110,7 +129,7 @@ def process_batch(batch):
     text_features /= text_features.norm(dim=-1, keepdim=True)
 
     # Fusion
-    combined = 0.65 * image_features + 0.35 * text_features
+    combined = 0.5 * image_features + 0.5 * text_features
 
     return file_names, metadata_list, combined.cpu().numpy()
 

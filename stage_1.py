@@ -2,16 +2,49 @@ from concurrent.futures import ThreadPoolExecutor
 from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
 import sqlite3
-from PIL import Image
-from pillow_heif import register_heif_opener
 from pathlib import Path
+from transformers import BlipProcessor, BlipForConditionalGeneration
+from PIL import Image
+import torch
+from pillow_heif import register_heif_opener
 
 register_heif_opener()
 
+
+# GeoLocator Config
 geolocator = Nominatim(user_agent="geo_app_2026")
 reverse = RateLimiter(geolocator.reverse, min_delay_seconds=1, max_retries=3)
 
 geo_cache = {}
+
+
+
+# BLIP Config
+device = "mps" if torch.backends.mps.is_available() else "cpu"
+blip_processor = BlipProcessor.from_pretrained(
+    "Salesforce/blip-image-captioning-large",
+    use_fast=True
+)
+blip_model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-large")
+
+blip_model = blip_model.to(device)
+blip_model.eval()
+
+
+
+
+
+
+def generate_caption(image):
+    inputs = blip_processor(images=image, return_tensors="pt").to(device)
+
+    with torch.no_grad():
+        out = blip_model.generate(**inputs, max_new_tokens=30)
+
+    caption = blip_processor.decode(out[0], skip_special_tokens=True)
+    return caption
+
+
 
 def exact_geo(lat, lon):
     key = (round(lat, 4), round(lon, 4))  
@@ -94,12 +127,15 @@ def process_image(file_path):
 
         datetime = exif_data.get(306) if exif_data else None
 
+
+        #BLIP
+        caption = generate_caption(img)
+
         return (
             str(Path(file_path).name),
             str(datetime),
             str(address),
-            str(lat),
-            str(lon)
+            str(caption)
         )
 
     except Exception as e:
@@ -117,8 +153,7 @@ def meta_data_pipeline(image_paths):
         file_path TEXT UNIQUE,
         date_time TEXT,
         location TEXT,
-        lat REAL,
-        lon REAL,
+        caption TEXT,
         processed INTEGER DEFAULT 0
     )
     ''')
@@ -129,8 +164,8 @@ def meta_data_pipeline(image_paths):
 
     results = [r for r in results if r is not None]
     cursor.executemany('''
-        INSERT OR REPLACE INTO metadata (file_path, date_time, location, lat, lon)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO metadata (file_path, date_time, location, caption)
+        VALUES (?, ?, ?, ?)
     ''', results)
 
     conn.commit()

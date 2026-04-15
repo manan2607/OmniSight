@@ -15,10 +15,10 @@ TOP_K = 1
 device = "mps" if torch.backends.mps.is_available() else "cpu"
 
 model, _, preprocess = open_clip.create_model_and_transforms(
-    "ViT-B-32", pretrained="laion2b_s34b_b79k"
+    "ViT-L-14", pretrained="laion2b_s32b_b82k"
 )
 
-tokenizer = open_clip.get_tokenizer("ViT-B-32")
+tokenizer = open_clip.get_tokenizer("ViT-L-14")
 
 model = model.to(device)
 model.eval()
