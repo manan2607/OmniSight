@@ -1,9 +1,8 @@
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-import warnings
-warnings.filterwarnings("ignore", category=UserWarning)
 
+from datetime import datetime
 import sqlite3
 import torch
 import open_clip
@@ -34,6 +33,65 @@ model = model.to(device)
 model.eval()
 
 
+def parse_datetime(datetime_str):
+    formats = [
+        "%Y:%m:%d %H:%M:%S",  # EXIF
+        "%d-%m-%Y %H:%M:%S",  # your format
+        "%Y-%m-%d %H:%M:%S",  # ISO
+        "%Y-%m-%d",           # date only
+    ]
+
+    for fmt in formats:
+        try:
+            return datetime.strptime(datetime_str, fmt)
+        except:
+            continue
+
+    return None
+
+
+
+def enrich_datetime(datetime_str):
+    dt = parse_datetime(datetime_str)
+
+    if not dt:
+        return ""
+
+    day = dt.day
+
+    if 11 <= day <= 13:
+        suffix = "th"
+    else:
+        suffix = ["th", "st", "nd", "rd", "th"][min(day % 10, 4)]
+
+    formatted_date = dt.strftime(f"{day}{suffix} %B %Y")
+
+    # time of day
+    hour = dt.hour
+    if 5 <= hour < 12:
+        time_of_day = "morning"
+    elif 12 <= hour < 17:
+        time_of_day = "afternoon"
+    elif 17 <= hour < 20:
+        time_of_day = "evening"
+    else:
+        time_of_day = "night"
+
+    # season
+    month = dt.month
+    if month in [12, 1, 2]:
+        season = "winter"
+    elif month in [3, 4, 5]:
+        season = "spring"
+    elif month in [6, 7, 8]:
+        season = "summer"
+    else:
+        season = "autumn"
+
+    return f"{formatted_date}, {time_of_day}, {season}"
+
+
+
 
 def metadata_to_text(meta):
     file_name =str(Path(meta.get('file_name','')).name)
@@ -41,21 +99,12 @@ def metadata_to_text(meta):
     address = str(meta.get('address', ''))
     caption = str(meta.get('caption', ''))
 
-    if " " in date_time:
-        date, time = date_time.split(" ", 1)
+    if date_time:
+        datetime = enrich_datetime(date_time)
     else:
-        date, time = date_time, ""
+        datetime = ""
 
-    parts = [
-        caption,
-        f"location {address}" if address else "",
-        f"date {date}" if date else "",
-        f"time {time}" if time else "",
-        f"{file_name}",
-        "photo"
-    ]
-
-    return ", ".join([p for p in parts if p])
+    return f"{file_name} contains {caption} {datetime}, at address {address} "
 
 
 

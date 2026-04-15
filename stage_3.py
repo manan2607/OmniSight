@@ -1,9 +1,6 @@
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-import warnings
-warnings.filterwarnings("ignore", category=UserWarning)
-
 import torch
 import open_clip
 import faiss

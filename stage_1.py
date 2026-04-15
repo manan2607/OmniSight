@@ -1,6 +1,3 @@
-import warnings
-warnings.filterwarnings("ignore", category=UserWarning)
-
 from concurrent.futures import ThreadPoolExecutor
 from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
