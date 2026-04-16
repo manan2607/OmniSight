@@ -6,3 +6,4 @@ open_clip_torch
 torchvision
 faiss-cpu
 transformers
+streamlit

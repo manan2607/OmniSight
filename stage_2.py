@@ -35,10 +35,10 @@ model.eval()
 
 def parse_datetime(datetime_str):
     formats = [
-        "%Y:%m:%d %H:%M:%S",  # EXIF
-        "%d-%m-%Y %H:%M:%S",  # your format
-        "%Y-%m-%d %H:%M:%S",  # ISO
-        "%Y-%m-%d",           # date only
+        "%Y:%m:%d %H:%M:%S",  
+        "%d-%m-%Y %H:%M:%S",  
+        "%Y-%m-%d %H:%M:%S",  
+        "%Y-%m-%d",           
     ]
 
     for fmt in formats:
@@ -179,7 +179,7 @@ def process_batch(batch):
     text_features /= text_features.norm(dim=-1, keepdim=True)
 
     # Fusion
-    combined = 0.5 * image_features + 0.5 * text_features
+    combined = 0.3 * text_features + 0.7 * image_features
 
     return file_names, combined.cpu().numpy()
 
