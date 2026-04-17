@@ -7,3 +7,6 @@ torchvision
 faiss-cpu
 transformers
 streamlit
+umap-learn 
+scikit-learn 
+plotly
