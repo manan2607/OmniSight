@@ -10,3 +10,4 @@ streamlit
 umap-learn 
 scikit-learn 
 plotly
+streamlit-plotly-events
