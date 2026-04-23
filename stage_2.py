@@ -1,7 +1,6 @@
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-
 from datetime import datetime
 import sqlite3
 import torch
@@ -11,16 +10,17 @@ import faiss
 import json
 from PIL import Image
 from pathlib import Path
-from pillow_heif import register_heif_opener
 
-register_heif_opener()
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except:
+    print("HEIC not supported")
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Global Config
-device = "mps" if torch.backends.mps.is_available() else "cpu"
 FAISS_INDEX_FILE = "faiss.index"
 FAISS_MAP_FILE = "faiss_map.json"
-
 
 # CLIP Config
 model, _, preprocess = open_clip.create_model_and_transforms(
@@ -35,10 +35,10 @@ model.eval()
 
 def parse_datetime(datetime_str):
     formats = [
-        "%Y:%m:%d %H:%M:%S",  
-        "%d-%m-%Y %H:%M:%S",  
-        "%Y-%m-%d %H:%M:%S",  
-        "%Y-%m-%d",           
+        "%Y:%m:%d %H:%M:%S",
+        "%d-%m-%Y %H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d",
     ]
 
     for fmt in formats:
@@ -48,7 +48,6 @@ def parse_datetime(datetime_str):
             continue
 
     return None
-
 
 
 def enrich_datetime(datetime_str):
@@ -66,7 +65,6 @@ def enrich_datetime(datetime_str):
 
     formatted_date = dt.strftime(f"{day}{suffix} %B %Y")
 
-    # time of day
     hour = dt.hour
     if 5 <= hour < 12:
         time_of_day = "morning"
@@ -77,7 +75,6 @@ def enrich_datetime(datetime_str):
     else:
         time_of_day = "night"
 
-    # season
     month = dt.month
     if month in [12, 1, 2]:
         season = "winter"
@@ -91,21 +88,18 @@ def enrich_datetime(datetime_str):
     return f"{formatted_date}, {time_of_day}, {season}"
 
 
-
-
 def metadata_to_text(meta):
-    file_name =str(Path(meta.get('file_name','')).name)
+    file_name = str(Path(meta.get('file_name', '')).name)
     date_time = str(meta.get('date_time', ''))
     address = str(meta.get('address', ''))
     caption = str(meta.get('caption', ''))
 
     if date_time:
-        datetime = enrich_datetime(date_time)
+        datetime_val = enrich_datetime(date_time)
     else:
-        datetime = ""
+        datetime_val = ""
 
-    return f"{file_name} contains {caption} {datetime}, at address {address} "
-
+    return f"{file_name} contains {caption} {datetime_val}, at address {address} "
 
 
 def load_data():
@@ -130,12 +124,11 @@ def load_data():
                 "file_name": file_name,
                 "date_time": date_time,
                 "address": location,
-                "caption":caption
+                "caption": caption
             }
         })
 
     return data
-
 
 
 def process_batch(batch):
@@ -165,24 +158,23 @@ def process_batch(batch):
         file_names.append(file_name)
 
     if len(images) == 0:
-        return [], [], np.array([])
+        return [], np.array([])
 
     images = torch.cat(images).to(device)
-    text_tokens = tokenizer(texts).to(device)
+
+    text_tokens = tokenizer(texts)
+    text_tokens = text_tokens.to(device)
 
     with torch.no_grad():
         image_features = model.encode_image(images)
         text_features = model.encode_text(text_tokens)
 
-    # Normalize
     image_features /= image_features.norm(dim=-1, keepdim=True)
     text_features /= text_features.norm(dim=-1, keepdim=True)
 
-    # Fusion
     combined = 0.3 * text_features + 0.7 * image_features
 
     return file_names, combined.cpu().numpy()
-
 
 
 def load_mapping():
@@ -191,22 +183,20 @@ def load_mapping():
             return json.load(f)
     return {}
 
+
 def save_mapping(mapping):
     with open(FAISS_MAP_FILE, "w") as f:
         json.dump(mapping, f)
 
 
-
 def get_faiss_index(dim, embeddings=None):
     n_vectors = 0 if embeddings is None else embeddings.shape[0]
 
-    # SMALL DATA → use simple index
     if n_vectors < 100:
         print("⚡ Using IndexFlatIP (small dataset)")
         return faiss.IndexFlatIP(dim)
 
-    # LARGE DATA → use IVF
-    nlist = min(100, n_vectors // 2) 
+    nlist = min(100, n_vectors // 2)
     m = 8
 
     print(f"🚀 Using IVF index (nlist={nlist})")
@@ -226,7 +216,7 @@ def update_faiss(vectors):
     if len(new_embeddings) == 0:
         return
 
-    new_embeddings = new_embeddings.astype("float32")
+    new_embeddings = np.ascontiguousarray(new_embeddings.astype("float32"))
     dim = new_embeddings.shape[1]
 
     if os.path.exists(FAISS_INDEX_FILE):
@@ -242,7 +232,7 @@ def update_faiss(vectors):
         if new_embeddings.shape[0] >= index.nlist:
             index.train(new_embeddings)
         else:
-            print("⚠️ Not enough data to train IVF yet, skipping training")
+            print("Not enough data to train IVF yet, skipping training")
 
     index.add(new_embeddings)
 
@@ -252,7 +242,7 @@ def update_faiss(vectors):
     faiss.write_index(index, FAISS_INDEX_FILE)
     save_mapping(id_map)
 
-    print(f"✅ Added {len(new_embeddings)} vectors to FAISS")
+    print(f"Added {len(new_embeddings)} vectors to FAISS")
 
 
 def mark_processed(file_names):

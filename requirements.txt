@@ -4,7 +4,7 @@ pillow-heif
 torch
 open_clip_torch
 torchvision
-faiss-cpu
+faiss-cpu==1.8.0
 transformers
 streamlit
 umap-learn 

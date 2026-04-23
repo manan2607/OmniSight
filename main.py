@@ -2,8 +2,6 @@ from stage_1 import meta_data_pipeline
 from stage_2 import load_data, process_batch,update_faiss,mark_processed
 from pathlib import Path
 
-import warnings
-warnings.filterwarnings("ignore", category=UserWarning)
 
 
 
@@ -12,7 +10,7 @@ if __name__ == '__main__':
 
     # STAGE_1 - Extracting Metadata
     # File Paths
-    folder = Path("/Users/manan/Desktop/my_own_codes/AK-Gift/photos/")
+    folder = Path("photos")
     image_paths = list(folder.glob("*"))
 
     #Getting all the MetaData from the image

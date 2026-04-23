@@ -6,44 +6,45 @@ from pathlib import Path
 from transformers import BlipProcessor, BlipForConditionalGeneration
 from PIL import Image
 import torch
-from pillow_heif import register_heif_opener
 
-register_heif_opener()
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except:
+    print("HEIC not supported")
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 # GeoLocator Config
 geolocator = Nominatim(user_agent="geo_app_2026")
 reverse = RateLimiter(geolocator.reverse, min_delay_seconds=1, max_retries=3)
-
 geo_cache = {}
 
 
-
 # BLIP Config
-device = "mps" if torch.backends.mps.is_available() else "cpu"
 blip_processor = BlipProcessor.from_pretrained(
     "Salesforce/blip-image-captioning-large",
     use_fast=True
 )
-blip_model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-large")
+blip_model = BlipForConditionalGeneration.from_pretrained(
+    "Salesforce/blip-image-captioning-large"
+)
 
 blip_model = blip_model.to(device)
 blip_model.eval()
 
 
-
-
-
-
 def generate_caption(image):
-    inputs = blip_processor(images=image, return_tensors="pt").to(device)
+    inputs = blip_processor(images=image, return_tensors="pt")
+
+    inputs = {k: v.to(device) for k, v in inputs.items()}
 
     with torch.no_grad():
         out = blip_model.generate(**inputs, max_new_tokens=30)
 
     caption = blip_processor.decode(out[0], skip_special_tokens=True)
     return caption
-
 
 
 def exact_geo(lat, lon):
@@ -97,6 +98,7 @@ def get_processed_files():
 
     return set(r[0] for r in rows)
 
+
 def process_image(file_path):
     processed_files = get_processed_files()
 
@@ -114,7 +116,7 @@ def process_image(file_path):
             exif_data = img.getexif()
             gps_info = exif_data.get_ifd(0x8825)
         else:
-            exif_data = img._getexif()
+            exif_data = getattr(img, "_getexif", lambda: None)()
             gps_info = exif_data.get(34853) if exif_data else None
 
         lat, lon = None, None
@@ -127,8 +129,7 @@ def process_image(file_path):
 
         datetime = exif_data.get(306) if exif_data else None
 
-
-        #BLIP
+        # BLIP
         caption = generate_caption(img)
 
         return (
@@ -159,10 +160,12 @@ def meta_data_pipeline(image_paths):
     ''')
 
     conn.commit()
+
     with ThreadPoolExecutor(max_workers=8) as executor:
         results = list(executor.map(process_image, image_paths))
 
     results = [r for r in results if r is not None]
+
     cursor.executemany('''
         INSERT OR REPLACE INTO metadata (file_path, date_time, location, caption)
         VALUES (?, ?, ?, ?)

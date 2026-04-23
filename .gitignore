@@ -1,4 +1,4 @@
-venv
+venv_cuda
 .DS_Store
 photos
 photo_metadata.db
