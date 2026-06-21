@@ -24,6 +24,7 @@ OmniSight is a localized, intelligent media engine that transforms flat image di
 
 ## 📦 Project Structure
 
+```
 ├── app.py                # Main Streamlit Dashboard Application
 ├── main.py               # Orchestrator running Stage 1 & Stage 2 pipelines
 ├── stage_1.py            # SQLite metadata extraction, GPS parsing, & BLIP pipeline
@@ -32,6 +33,7 @@ OmniSight is a localized, intelligent media engine that transforms flat image di
 ├── faiss.index           # Persisted multi-dimensional FAISS index
 ├── faiss_map.json        # ID-to-filename structural lookups
 └── photos/               # Target directory for your image library (.heic, .jpg, .png)
+```
 
 ---
 
